@@ -21,7 +21,7 @@ def setup_log_file(log_file_path):
     :type log_file_path: str
     """
     make_parent_dirs(log_file_path)
-    fh = FileHandler(filename=log_file_path, mode='w')
+    fh = FileHandler(filename=log_file_path, mode='a')
     fh.setFormatter(Formatter(LOGGING_FORMAT))
     def_logger.addHandler(fh)
 

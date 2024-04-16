@@ -18,10 +18,10 @@ setup(
     packages=find_packages(exclude=('tests', 'examples', 'demo', 'docs', 'configs')),
     python_requires='>=3.8',
     install_requires=[
-        'torch>=2.0.0',
-        'torchvision>=0.15.1',
+        'torch',
+        'torchvision',
         'numpy',
-        'pyyaml>=6.0',
+        'pyyaml',
         'scipy',
         'cython'
     ],
