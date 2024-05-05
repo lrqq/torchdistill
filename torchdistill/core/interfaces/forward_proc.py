@@ -1,4 +1,6 @@
 from .registry import register_forward_proc_func
+from torchaudio.transforms import MFCC
+import torch
 
 
 @register_forward_proc_func
@@ -36,6 +38,30 @@ def forward_batch_only(model, sample_batch, targets=None, supp_dict=None, **kwar
     """
     return model(sample_batch)
 
+@register_forward_proc_func
+def forward_batch_mfcc(model, sample_batch, targets=None, supp_dict=None, **kwargs):
+    """
+    Performs forward computation using `sample_batch` and `mfcc`
+
+    :param model: model.
+    :type model: nn.Module
+    :param sample_batch: sample batch.
+    :type sample_batch: Any
+    :param targets: training targets (won't be passed to forward).
+    :type targets: Any
+    :param supp_dict: supplementary dict (won't be passed to forward).
+    :type supp_dict: dict
+    :return: model's forward output.
+    :rtype: Any
+    """
+    mfcc = MFCC(
+        sample_rate=16000,
+        n_mfcc=40,
+        melkwargs={"n_fft": 480, "hop_length": 160, "n_mels": 64, "f_min": 20, "f_max": 8000},
+    )
+    device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
+    mfcc.to(device)
+    return model(mfcc(sample_batch))
 
 @register_forward_proc_func
 def forward_batch_target(model, sample_batch, targets, supp_dict=None, **kwargs):
