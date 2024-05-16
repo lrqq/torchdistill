@@ -6,6 +6,7 @@ from torch.nn.functional import adaptive_avg_pool2d, adaptive_max_pool2d, normal
 
 from .registry import register_loss_wrapper, register_mid_level_loss
 from ..common.constant import def_logger
+import torch.nn.functional as F
 
 logger = def_logger.getChild(__name__)
 
@@ -178,6 +179,94 @@ class KDLoss(nn.KLDivLoss):
         hard_loss = self.cross_entropy_loss(student_logits, targets)
         return self.alpha * hard_loss + self.beta * (self.temperature ** 2) * soft_loss
 
+@register_mid_level_loss
+class DKDLoss(nn.KLDivLoss):
+    """
+    Decoulped knowledge distillation (KD) loss module.
+
+    .. math::
+
+
+    Borui Zhao, Quan Cui, Renjie Song, Yiyu Qiu, Jiajun Liang: `"Decoulped Knowledge Distillation" <https://arxiv.org/abs/2203.08679>`_ @ CVPR 2022 Decoulped Knowledge Distillation (2022)
+
+    :param student_module_path: student model's logit module path.
+    :type student_module_path: str
+    :param student_module_io: 'input' or 'output' of the module in the student model.
+    :type student_module_io: str
+    :param teacher_module_path: teacher model's logit module path.
+    :type teacher_module_path: str
+    :param teacher_module_io: 'input' or 'output' of the module in the teacher model.
+    :type teacher_module_io: str
+    :param temperature: hyperparameter :math:`\\tau` to soften class-probability distributions.
+    :type temperature: float
+    :param alpha: balancing factor for :math:`L_{CE}`, cross-entropy.
+    :type alpha: float
+    :param beta: balancing factor (default: :math:`1 - \\alpha`) for :math:`L_{KL}`, KL divergence between class-probability distributions softened by :math:`\\tau`.
+    :type beta: float or None
+    :param reduction: ``reduction`` for KLDivLoss. If ``reduction`` = 'batchmean', CrossEntropyLoss's ``reduction`` will be 'mean'.
+    :type reduction: str or None
+    """
+    def __init__(self, student_module_path, student_module_io, teacher_module_path, teacher_module_io,
+                 temperature, alpha=None, beta=None, reduction='batchmean', **kwargs):
+        super().__init__(reduction=reduction)
+        self.student_module_path = student_module_path
+        self.student_module_io = student_module_io
+        self.teacher_module_path = teacher_module_path
+        self.teacher_module_io = teacher_module_io
+        self.temperature = temperature
+        self.alpha = alpha
+        self.beta = 1 - alpha if beta is None else beta
+        cel_reduction = 'mean' if reduction == 'batchmean' else reduction
+        self.cross_entropy_loss = nn.CrossEntropyLoss(reduction=cel_reduction, **kwargs)
+
+    @staticmethod
+    def _get_gt_mask(logits, target):
+        target = target.reshape(-1)
+        mask = torch.zeros_like(logits).scatter_(1, target.unsqueeze(1), 1).bool()
+        return mask
+
+
+    @staticmethod
+    def _get_other_mask(logits, target):
+        target = target.reshape(-1)
+        mask = torch.ones_like(logits).scatter_(1, target.unsqueeze(1), 0).bool()
+        return mask
+
+
+    @staticmethod
+    def cat_mask(t, mask1, mask2):
+        t1 = (t * mask1).sum(dim=1, keepdims=True)
+        t2 = (t * mask2).sum(1, keepdims=True)
+        rt = torch.cat([t1, t2], dim=1)
+        return rt
+
+    def forward(self, student_io_dict, teacher_io_dict, targets=None, *args, **kwargs):
+        student_logits = student_io_dict[self.student_module_path][self.student_module_io]
+        teacher_logits = teacher_io_dict[self.teacher_module_path][self.teacher_module_io]
+        gt_mask = self._get_gt_mask(student_logits, targets)
+        other_mask = self._get_other_mask(student_logits, targets)
+        pred_student = F.softmax(student_logits / self.temperature, dim=1)
+        pred_teacher = F.softmax(teacher_logits / self.temperature, dim=1)
+        pred_student = self.cat_mask(pred_student, gt_mask, other_mask)
+        pred_teacher = self.cat_mask(pred_teacher, gt_mask, other_mask)
+        log_pred_student = torch.log(pred_student)
+        tckd_loss = (
+            F.kl_div(log_pred_student, pred_teacher, size_average=False)
+            * (self.temperature**2)
+            / targets.shape[0]
+        )
+        pred_teacher_part2 = F.softmax(
+            teacher_logits / self.temperature - 1000.0 * gt_mask, dim=1
+        )
+        log_pred_student_part2 = F.log_softmax(
+            student_logits / self.temperature - 1000.0 * gt_mask, dim=1
+        )
+        nckd_loss = (
+            F.kl_div(log_pred_student_part2, pred_teacher_part2, size_average=False)
+            * (self.temperature**2)
+            / targets.shape[0]
+        )
+        return self.alpha * tckd_loss + self.beta * nckd_loss
 
 @register_mid_level_loss
 class FSPLoss(nn.Module):
