@@ -397,7 +397,7 @@ class DistillationBox(object):
                 torch.save(cache_dict, cache_file_path)
         return teacher_outputs, extracted_teacher_io_dict
 
-    def forward_process(self, sample_batch, targets=None, supp_dict=None, **kwargs):
+    def forward_process(self, feats, waveform, targets=None, supp_dict=None, **kwargs):
         """
         Performs forward computations for teacher and student models.
 
@@ -410,9 +410,11 @@ class DistillationBox(object):
         :return: loss tensor.
         :rtype: torch.Tensor
         """
+        teacher_model_name = type(self.teacher_model.module).__name__
+        student_model_name = type(self.student_model.module).__name__
         teacher_outputs, extracted_teacher_io_dict =\
-            self.get_teacher_output(sample_batch=sample_batch, targets=targets, supp_dict=supp_dict, **kwargs)
-        student_outputs = self.student_forward_proc(self.student_model, sample_batch, targets, supp_dict, **kwargs)
+            self.get_teacher_output(sample_batch=waveform if 'leaf' in teacher_model_name else feats, targets=targets, supp_dict=supp_dict, **kwargs)
+        student_outputs = self.student_forward_proc(self.student_model, waveform if 'leaf' in student_model_name else feats, targets, supp_dict, **kwargs)
         extracted_student_io_dict = extract_io_dict(self.student_io_dict, self.device)
         extracted_student_io_dict[SELF_MODULE_PATH]['output'] = student_outputs
         if isinstance(self.student_model, AuxiliaryModelWrapper):

@@ -156,3 +156,21 @@ class SSKDDatasetWrapper(BaseDatasetWrapper):
                               self.transform(sample.rotate(180, expand=True)).detach(),
                               self.transform(sample.rotate(270, expand=True)).detach()])
         return sample, target, supp_dict
+
+@register_dataset_wrapper
+class LeafDatasetWrapper(Dataset):
+    """
+    A dataset wrapper for MFCC and Leaf
+
+    :param org_dataset: original dataset to be wrapped.
+    :type org_dataset: torch.utils.data.Dataset
+    """
+    def __init__(self, org_dataset):
+        self.org_dataset = org_dataset
+
+    def __getitem__(self, index):
+        feats, waveform, target = self.org_dataset.__getitem__(index)
+        return feats, waveform, target, dict()
+
+    def __len__(self):
+        return len(self.org_dataset)
